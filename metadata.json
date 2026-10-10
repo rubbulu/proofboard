@@ -1,0 +1,6 @@
+{
+  "name": "ProofBoard",
+  "description": "Proof-of-Skill Sandbox with deterministic rubric scoring, verifiable evidence records, consent-gated recruiter views, human appeals, and optional AI second opinions.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
