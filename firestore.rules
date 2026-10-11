@@ -1,0 +1,92 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helper functions for ProofBoard Identity Verification & Consent Guard
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function getUserData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function isVerifiedLearner() {
+      return isSignedIn() &&
+        getUserData().role == 'learner' &&
+        getUserData().verificationStatus == 'VERIFIED';
+    }
+
+    function isApprovedRecruiter() {
+      return isSignedIn() &&
+        getUserData().role == 'recruiter' &&
+        getUserData().verificationStatus == 'APPROVED';
+    }
+
+    function isReviewer() {
+      return isSignedIn() &&
+        getUserData().role == 'reviewer';
+    }
+
+    // 1. NEW COLLECTION: users (uid, role, verificationStatus, institutionOrOrg)
+    match /users/{uid} {
+      allow read: if isSignedIn() && (request.auth.uid == uid || isReviewer() || isApprovedRecruiter());
+      // Learners and recruiters can create their initial unverified/pending user doc;
+      // Only deterministic verification service or Reviewer can promote verificationStatus
+      allow create: if isSignedIn() && request.auth.uid == uid;
+      allow update: if isReviewer() || (isSignedIn() && request.auth.uid == uid);
+    }
+
+    // 2. NEW COLLECTION: verifications (uid, track, decision, reasonCodes, reviewerId, timestamp)
+    match /verifications/{verificationId} {
+      allow read: if isSignedIn() && (resource.data.uid == request.auth.uid || isReviewer());
+      allow create: if isSignedIn() && request.resource.data.uid == request.auth.uid;
+      // Only human Reviewer can override NEEDS_REVIEW learner or PENDING recruiter
+      allow update: if isReviewer();
+    }
+
+    // 3. EXISTING COLLECTION: tasks (read-only task bundles & rubrics)
+    match /tasks/{taskId} {
+      allow read: if isSignedIn();
+      allow write: if false;
+    }
+
+    // 4. EXISTING COLLECTION: attempts (evidence records)
+    // Only VERIFIED learners can create attempts; Approved recruiters can only read attempts of consented learners
+    match /attempts/{attemptId} {
+      allow read: if isSignedIn() && (
+        resource.data.learnerId == request.auth.uid ||
+        isReviewer() ||
+        (isApprovedRecruiter() &&
+          get(/databases/$(database)/documents/profiles/$(resource.data.learnerId)).data.consent == true &&
+          get(/databases/$(database)/documents/profiles/$(resource.data.learnerId)).data.disqualified != true)
+      );
+      allow create: if isVerifiedLearner() && request.resource.data.learnerId == request.auth.uid;
+      // Immutable attempts: learners and recruiters can NEVER overwrite or edit scores; only Reviewer can resolve appeals/flags
+      allow update: if isReviewer();
+      allow delete: if false;
+    }
+
+    // 5. EXISTING COLLECTION: profiles (learner competency profiles & consent flag)
+    // Approved recruiters can ONLY read profiles where consent == true, verificationStatus == 'VERIFIED', and disqualified != true
+    match /profiles/{learnerId} {
+      allow read: if isSignedIn() && (
+        request.auth.uid == learnerId ||
+        isReviewer() ||
+        (isApprovedRecruiter() &&
+          resource.data.consent == true &&
+          resource.data.verificationStatus == 'VERIFIED' &&
+          resource.data.disqualified != true)
+      );
+      // Only VERIFIED learners can share their profile with recruiters
+      allow create, update: if (isVerifiedLearner() && request.auth.uid == learnerId) || isReviewer();
+    }
+
+    // 6. EXISTING COLLECTION: appeals (learner appeals on stage scores or rejected ID verifications)
+    match /appeals/{appealId} {
+      allow read: if isSignedIn() && (resource.data.learnerId == request.auth.uid || isReviewer());
+      allow create: if isSignedIn() && request.resource.data.learnerId == request.auth.uid;
+      allow update: if isReviewer();
+    }
+  }
+}

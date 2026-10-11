@@ -47,7 +47,7 @@ export const STAGE_REGISTRY: Record<StageType, StageDescriptor> = {
     label: 'Bug Diagnosis',
     supportsPracticeRun: false,
     supportsWrittenSecondOpinion: false,
-    getDefaultAnswer: () => 'diag-opt-correct',
+    getDefaultAnswer: () => '',
   },
   debug_code: {
     type: 'debug_code',
@@ -70,7 +70,7 @@ export const STAGE_REGISTRY: Record<StageType, StageDescriptor> = {
     supportsWrittenSecondOpinion: false,
     getDefaultAnswer: (stage) => {
       const len = (stage.steps || []).length;
-      return len === 4 ? [1, 3, 2, 0] : [0, 1, 2, 3];
+      return len === 4 ? [2, 0, 3, 1] : [0, 1, 2, 3];
     },
   },
   pseudocode: {
@@ -130,7 +130,14 @@ export async function evaluateStageSubmission(
   const nowIso = new Date().toISOString();
 
   if (stage.type === 'bug_diagnosis') {
-    const selectedOpt = typeof answer === 'string' ? answer : '';
+    const selectedOpt = typeof answer === 'string' ? answer.trim() : '';
+    if (!selectedOpt) {
+      return {
+        validationBlocked: true,
+        validationMessage:
+          'Please select a root-cause bug diagnosis option before submitting.',
+      };
+    }
     const { score, lineResults } = scoreBugDiagnosisStage(stage, selectedOpt);
     const { confidence, confidenceReason } = deriveConfidence({
       stageType: stage.type,

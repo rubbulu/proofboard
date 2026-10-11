@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
 import {
-  CheckCircle2,
   FileCode2,
   FlaskConical,
   FileText,
@@ -8,6 +7,8 @@ import {
   Search,
   Lock,
   Filter,
+  AlertTriangle,
+  ArrowRight,
 } from 'lucide-react';
 import { repository } from '../data/repository';
 import {
@@ -16,7 +17,10 @@ import {
   COMPETENCY_META,
   STARTER_BUGGY_CART_CODE,
 } from '../engine/tasks';
-import { getVisibleProfiles } from '../trust/consent';
+import {
+  getVisibleProfiles,
+  isActiveRecruiterApproved,
+} from '../trust/consent';
 import {
   Attempt,
   CompetencyKey,
@@ -33,6 +37,7 @@ import {
 export interface RecruiterViewProps {
   activeSubTab: 'search' | 'evidence';
   onChangeSubTab: (tab: 'search' | 'evidence') => void;
+  onOpenVerifyRecruiter: () => void;
   onOpenEvidenceDrawer: (
     profile: Profile,
     attempt: Attempt,
@@ -45,10 +50,16 @@ export interface RecruiterViewProps {
 export const RecruiterView: React.FC<RecruiterViewProps> = ({
   activeSubTab,
   onChangeSubTab,
+  onOpenVerifyRecruiter,
   onOpenEvidenceDrawer,
+  onDataChanged,
+  onNotify,
 }) => {
+  const activeRecruiter = repository.getActiveRecruiterUser();
+  const recruiterApproved = isActiveRecruiterApproved();
+
   // Strictly query ONLY through getVisibleProfiles() from /trust/consent.ts
-  // Only returns candidates who enabled "Share with NxtMove" AND are NOT disqualified
+  // Returns [] if recruiter is not APPROVED, or if learner has not consented or is not VERIFIED
   const consentedProfiles = getVisibleProfiles();
 
   const [roleFilter, setRoleFilter] = useState<string>(
@@ -56,7 +67,7 @@ export const RecruiterView: React.FC<RecruiterViewProps> = ({
   );
   const [verifiedSkillFilter, setVerifiedSkillFilter] = useState<
     'debugging_80' | 'all'
-  >('debugging_80');
+  >('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [selectedCandidateId, setSelectedCandidateId] = useState<string>(
     consentedProfiles[0]?.learnerId || 'learner-asha'
@@ -83,7 +94,9 @@ export const RecruiterView: React.FC<RecruiterViewProps> = ({
   });
 
   const getCandidatePrimaryAttempt = (profile: Profile): Attempt | undefined => {
-    const attempts = repository.getAttemptsByLearner(profile.learnerId);
+    const attempts = repository.getPublishedAttemptsByLearner(
+      profile.learnerId
+    );
     return (
       attempts.find(
         (a) => a.stageType === 'debug_code' && a.status !== 'disqualified'
@@ -100,26 +113,52 @@ export const RecruiterView: React.FC<RecruiterViewProps> = ({
 
   return (
     <div className="space-y-6">
-      {/* NxtMove Recruiter Header & Sub-Tab Switcher */}
+      {/* NxtMove Recruiter Header with "Verified recruiter" Label */}
       <div className="bg-white border border-slate-200 rounded-xl p-5 flex flex-wrap items-center justify-between gap-4">
         <div className="space-y-1">
-          <div className="flex items-center gap-2 text-xs font-bold text-[#1E8E5A]">
-            <ShieldCheck className="w-4 h-4" aria-hidden="true" />
-            <span>
-              💼 NxtMove Hiring Partner Portal · Consent &amp; Integrity Gated
+          <div className="flex flex-wrap items-center gap-2 text-xs">
+            <span className="font-bold text-[#1E8E5A]">
+              💼 NxtMove Hiring Partner Portal
+            </span>
+            {recruiterApproved ? (
+              <span className="inline-flex items-center gap-1 font-bold text-white bg-[#1E8E5A] px-2.5 py-0.5 rounded-md">
+                <ShieldCheck className="w-3.5 h-3.5" aria-hidden="true" />
+                <span>Verified recruiter</span>
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1 font-bold text-[#0B1B3A] bg-[#F2B705] px-2.5 py-0.5 rounded-md">
+                <AlertTriangle className="w-3.5 h-3.5" aria-hidden="true" />
+                <span>
+                  Recruiter Status: Unverified (
+                  {activeRecruiter.verificationStatus})
+                </span>
+              </span>
+            )}
+            <span className="text-slate-500 font-mono">
+              ({activeRecruiter.email} · {activeRecruiter.institutionOrOrg})
             </span>
           </div>
           <h1 className="text-xl font-bold text-[#0B1B3A]">
             Verified Proof-of-Skill Talent Pool
           </h1>
           <p className="text-xs text-slate-600">
-            Only candidates with &ldquo;Share with NxtMove&rdquo; ON and zero
-            integrity disqualifications appear here. Read-only inspection:
-            recruiters cannot grade or alter scores.
+            Requires an <strong>APPROVED</strong> recruiter AND{' '}
+            <strong>VERIFIED</strong> learners who turned on &ldquo;Share with
+            NxtMove&rdquo;. Read-only inspection: recruiters can never edit
+            scores or attempts.
           </p>
         </div>
 
-        <div className="flex items-center gap-2" role="tablist">
+        <div className="flex flex-wrap items-center gap-2" role="tablist">
+          <button
+            type="button"
+            onClick={onOpenVerifyRecruiter}
+            className="min-h-[42px] px-3.5 py-2 rounded-xl text-xs font-semibold text-[#1E8E5A] bg-emerald-50 border border-[#1E8E5A]/30 hover:bg-emerald-100 inline-flex items-center gap-1.5 transition-colors"
+          >
+            <ShieldCheck className="w-4 h-4" />
+            <span>Track B: Verify Recruiter</span>
+          </button>
+
           <button
             type="button"
             role="tab"
@@ -152,7 +191,45 @@ export const RecruiterView: React.FC<RecruiterViewProps> = ({
         </div>
       </div>
 
-      {activeSubTab === 'search' ? (
+      {/* Gate if Recruiter is PENDING or REJECTED */}
+      {!recruiterApproved ? (
+        <div className="bg-amber-50 border-2 border-[#F2B705] rounded-xl p-8 text-center space-y-4">
+          <div className="inline-flex items-center gap-2 text-sm font-bold text-[#0B1B3A]">
+            <Lock className="w-5 h-5 text-amber-700" />
+            <span>
+              Consent Guard Blocked Access: Recruiter Status is{' '}
+              {activeRecruiter.verificationStatus}
+            </span>
+          </div>
+          <p className="text-xs text-slate-700 max-w-xl mx-auto leading-relaxed">
+            Per Track B Rule #4 and Firestore Security Rules, only{' '}
+            <strong>APPROVED</strong> recruiters can read consented learner
+            profiles. Complete Track B verification (or click Demo Mode
+            auto-approve) to unlock the talent pool.
+          </p>
+          <div className="flex flex-wrap items-center justify-center gap-3">
+            <button
+              type="button"
+              onClick={onOpenVerifyRecruiter}
+              className="min-h-[42px] px-4 py-2 text-xs font-bold text-white bg-[#0B1B3A] hover:bg-slate-800 rounded-xl inline-flex items-center gap-1.5"
+            >
+              <span>Open VerifyRecruiter Stepper</span>
+              <ArrowRight className="w-4 h-4" />
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                repository.setActiveRecruiterStatus('APPROVED');
+                onDataChanged();
+                onNotify('Demo Recruiter auto-approved (APPROVED)!');
+              }}
+              className="min-h-[42px] px-4 py-2 text-xs font-bold text-white bg-[#1E8E5A] hover:bg-[#177348] rounded-xl"
+            >
+              One-Click Auto-Approve Demo Recruiter Now
+            </button>
+          </div>
+        </div>
+      ) : activeSubTab === 'search' ? (
         <>
           {/* Filter Bar */}
           <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-4">
@@ -194,10 +271,10 @@ export const RecruiterView: React.FC<RecruiterViewProps> = ({
                   }
                   className="w-full min-h-[40px] px-3 py-2 text-xs font-medium bg-slate-50 border border-slate-300 rounded-lg text-[#0B1B3A]"
                 >
+                  <option value="all">All Verified Competencies</option>
                   <option value="debugging_80">
                     Debugging &gt;= 80% (Verified Sandbox Tests)
                   </option>
-                  <option value="all">All Verified Competencies</option>
                 </select>
               </div>
 
@@ -233,8 +310,8 @@ export const RecruiterView: React.FC<RecruiterViewProps> = ({
               <span className="inline-flex items-center gap-1.5 text-slate-600 bg-slate-100 px-3 py-1 rounded-lg">
                 <Lock className="w-3.5 h-3.5 text-[#1E8E5A]" />
                 <span>
-                  Gated Privacy Active: Non-consented &amp; disqualified
-                  shortcut profiles are automatically excluded
+                  Consent Guard: Unverified learners (Kiran), non-consented, &amp;
+                  disqualified profiles (Vikram) are excluded
                 </span>
               </span>
             </div>
@@ -244,11 +321,15 @@ export const RecruiterView: React.FC<RecruiterViewProps> = ({
           {filteredProfiles.length === 0 ? (
             <div className="bg-white border border-slate-200 rounded-xl p-10 text-center space-y-2">
               <p className="text-base font-bold text-[#0B1B3A]">
-                No consented candidates match these filters.
+                No verified, published &amp; consented candidates match these
+                filters.
               </p>
-              <p className="text-xs text-slate-600">
-                If Asha&apos;s consent toggle is turned OFF in her Competency
-                Profile, she is immediately removed from this view.
+              <p className="text-xs text-slate-600 max-w-xl mx-auto">
+                A learner only appears here after completing Track A Student ID
+                verification (<strong>VERIFIED</strong>), solving the 4 stages
+                in the Task Sandbox, clicking{' '}
+                <strong>Publish Solved Problem</strong>, and enabling NxtMove
+                sharing consent.
               </p>
             </div>
           ) : (
@@ -265,16 +346,26 @@ export const RecruiterView: React.FC<RecruiterViewProps> = ({
                     <div className="space-y-4">
                       <div className="flex flex-wrap items-start justify-between gap-2">
                         <div>
-                          <div className="flex items-center gap-2">
+                          <div className="flex flex-wrap items-center gap-2">
                             <h2 className="text-lg font-bold text-[#0B1B3A]">
                               {candidate.name}
                             </h2>
-                            <span className="text-xs font-semibold px-2.5 py-0.5 rounded-md bg-emerald-50 text-[#1E8E5A] border border-emerald-200">
+                            {candidate.verificationStatus === 'VERIFIED' && (
+                              <span className="inline-flex items-center gap-1 text-xs font-bold px-2.5 py-0.5 rounded-md bg-emerald-50 text-[#1E8E5A] border border-emerald-200">
+                                <ShieldCheck className="w-3.5 h-3.5" />
+                                <span>Verified learner</span>
+                              </span>
+                            )}
+                            <span className="text-xs font-semibold px-2 py-0.5 rounded-md bg-slate-100 text-slate-700">
                               Shared with NxtMove
                             </span>
                           </div>
                           <p className="text-xs text-slate-600 mt-0.5">
-                            {candidate.college} · Role:{' '}
+                            {candidate.college} · ID:{' '}
+                            <span className="font-mono">
+                              {candidate.studentIdNumber || 'Verified'}
+                            </span>{' '}
+                            · Role:{' '}
                             <strong className="text-[#0B1B3A]">
                               {candidate.roleTarget}
                             </strong>
@@ -290,8 +381,16 @@ export const RecruiterView: React.FC<RecruiterViewProps> = ({
                           <span className="font-bold text-[#0B1B3A]">
                             Debugging &amp; Edge-Case Handling
                           </span>
-                          <span className="font-mono font-bold text-[#1E8E5A]">
-                            Verified ({debugComp.latestScore ?? 100}/100)
+                          <span
+                            className={`font-mono font-bold ${
+                              debugComp.latestScore !== null
+                                ? 'text-[#1E8E5A]'
+                                : 'text-slate-500'
+                            }`}
+                          >
+                            {debugComp.latestScore !== null
+                              ? `${debugComp.proficiency} (${debugComp.latestScore}/100)`
+                              : 'Not assessed'}
                           </span>
                         </div>
                         <ConfidenceDisplay
@@ -391,9 +490,17 @@ export const RecruiterView: React.FC<RecruiterViewProps> = ({
         <div className="bg-white border border-slate-200 rounded-xl p-6 space-y-6">
           <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-200 pb-4">
             <div>
-              <h2 className="text-lg font-bold text-[#0B1B3A]">
-                Candidate Evidence Deep-Dive
-              </h2>
+              <div className="flex items-center gap-2">
+                <h2 className="text-lg font-bold text-[#0B1B3A]">
+                  Candidate Evidence Deep-Dive
+                </h2>
+                {selectedCandidate?.verificationStatus === 'VERIFIED' && (
+                  <span className="inline-flex items-center gap-1 text-xs font-bold px-2.5 py-0.5 rounded-md bg-emerald-50 text-[#1E8E5A] border border-emerald-200">
+                    <ShieldCheck className="w-3.5 h-3.5" />
+                    <span>Verified learner</span>
+                  </span>
+                )}
+              </div>
               <p className="text-xs text-slate-600">
                 Inspect code diffs, 13 sandbox test logs, and written
                 explain-back notes for any consented candidate.
@@ -443,10 +550,11 @@ export const RecruiterView: React.FC<RecruiterViewProps> = ({
                 </div>
                 <div>
                   <div className="text-slate-500 font-semibold">
-                    Recency &amp; Telemetry
+                    Recency &amp; Student ID
                   </div>
                   <div className="text-sm font-bold text-[#0B1B3A] mt-0.5">
-                    Fresh ({formatShortDate(selectedCandidateAttempt.submittedAt)})
+                    Fresh ({formatShortDate(selectedCandidateAttempt.submittedAt)}
+                    ) · {selectedCandidate.studentIdNumber || 'Verified'}
                   </div>
                 </div>
               </div>

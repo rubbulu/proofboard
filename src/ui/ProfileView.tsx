@@ -9,6 +9,8 @@ import {
   History,
   CheckCircle2,
   Flag,
+  ShieldCheck,
+  AlertTriangle,
 } from 'lucide-react';
 import { repository } from '../data/repository';
 import { COMPETENCY_META, getStageById } from '../engine/tasks';
@@ -34,6 +36,7 @@ export interface ProfileViewProps {
   onOpenEvidenceDrawer: (attempt: Attempt, tab?: EvidenceDrawerTab) => void;
   onGoToSandbox: () => void;
   onGoToAppeals: () => void;
+  onOpenVerifyLearner?: () => void;
   onDataChanged: () => void;
   onNotify: (msg: string) => void;
 }
@@ -43,19 +46,27 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
   onOpenEvidenceDrawer,
   onGoToSandbox,
   onGoToAppeals,
+  onOpenVerifyLearner,
   onDataChanged,
   onNotify,
 }) => {
   const [activeTab, setActiveTab] = useState<'evidence' | 'audit'>('evidence');
   const [collegeDraft, setCollegeDraft] = useState(learner.college);
+  const isLearnerVerified =
+    (learner.verificationStatus || 'UNVERIFIED') === 'VERIFIED';
 
-  const attempts = repository.getAttemptsByLearner(learner.learnerId);
+  const publishedAttempts = repository.getPublishedAttemptsByLearner(
+    learner.learnerId
+  );
+  const allSandboxAttempts = repository.getAttemptsByLearner(learner.learnerId);
+  const completedStagesCount = new Set(
+    allSandboxAttempts.map((a) => a.stageId)
+  ).size;
   const auditEvents = getAuditEventsForLearner(learner.learnerId);
 
-  const verifiedCodeAttempt =
-    attempts.find(
-      (a) => a.stageType === 'debug_code' && a.status !== 'disqualified'
-    ) || attempts[0];
+  const verifiedCodeAttempt = publishedAttempts.find(
+    (a) => a.stageType === 'debug_code' && a.status !== 'disqualified'
+  );
 
   const competencyKeys: CompetencyKey[] = [
     'debugging',
@@ -65,6 +76,12 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
   ];
 
   const handleToggleConsent = () => {
+    if (!isLearnerVerified) {
+      onNotify(
+        `Track A Verification Required: Your Student ID status is ${learner.verificationStatus}. Only VERIFIED learners can share their profile with NxtMove recruiters.`
+      );
+      return;
+    }
     const next = !learner.consent;
     setLearnerConsent(learner.learnerId, next);
     onDataChanged();
@@ -87,6 +104,56 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
 
   return (
     <div className="space-y-6">
+      {/* Publish Status Banner when learner has unpublished Sandbox attempts or published assessment */}
+      {!learner.hasPublishedAssessment && allSandboxAttempts.length > 0 && (
+        <div className="p-4 rounded-xl bg-amber-50 border-2 border-[#F2B705] flex flex-wrap items-center justify-between gap-3 text-xs">
+          <div className="space-y-1">
+            <div className="font-bold text-[#0B1B3A] flex items-center gap-1.5">
+              <Clock className="w-4 h-4 text-amber-700" />
+              <span>
+                Unpublished Sandbox Draft ({completedStagesCount}/4 Stages
+                Solved) — Profile &amp; Recruiter View Not Updated Yet
+              </span>
+            </div>
+            <p className="text-slate-700 max-w-3xl">
+              Your stage attempts are saved privately in the Task Sandbox so you
+              never have to worry about mistakes being shared prematurely. Only
+              once you complete all 4 stages and click{' '}
+              <strong>Publish Solved Problem</strong> will your chosen attempts
+              be uploaded to your Competency Profile and visible to NxtMove
+              Recruiters.
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2 shrink-0">
+            {completedStagesCount >= 4 && isLearnerVerified && (
+              <button
+                type="button"
+                onClick={() => {
+                  repository.publishLearnerAssessment(learner.learnerId);
+                  onDataChanged();
+                  onNotify(
+                    'Published! Your solved 4-stage assessment is now uploaded to your Competency Profile and Recruiter Portal.'
+                  );
+                }}
+                className="min-h-[38px] px-4 py-2 text-xs font-bold text-white bg-[#1E8E5A] hover:bg-[#177348] rounded-xl inline-flex items-center gap-1.5"
+              >
+                <CheckCircle2 className="w-4 h-4" />
+                <span>Publish Solved Problem Now</span>
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={onGoToSandbox}
+              className="min-h-[38px] px-3.5 py-2 text-xs font-bold text-[#0B1B3A] bg-white hover:bg-slate-100 border border-slate-300 rounded-xl"
+            >
+              {completedStagesCount >= 4
+                ? 'Choose Desired Attempts in Sandbox'
+                : `Continue Solving in Sandbox (${completedStagesCount}/4)`}
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Profile Identity & Privacy Consent Card */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
         <div className="lg:col-span-7 bg-white border border-slate-200 rounded-xl p-6 flex flex-col justify-between space-y-4">
@@ -96,9 +163,21 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                 Nyeras Verified Skill Passport
               </span>
               <span aria-hidden="true">·</span>
-              <span>Target Role: {learner.roleTarget}</span>
+              {isLearnerVerified ? (
+                <span className="inline-flex items-center gap-1 font-bold text-[#1E8E5A] bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-md">
+                  <ShieldCheck className="w-3.5 h-3.5" aria-hidden="true" />
+                  <span>
+                    Verified learner · ID: {learner.studentIdNumber || 'IISC-CS-2023-0842'}
+                  </span>
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1 font-bold text-amber-900 bg-amber-50 border border-amber-300 px-2 py-0.5 rounded-md">
+                  <AlertTriangle className="w-3.5 h-3.5" aria-hidden="true" />
+                  <span>Track A Status: {learner.verificationStatus}</span>
+                </span>
+              )}
               <span aria-hidden="true">·</span>
-              <span>No single overall score</span>
+              <span>Target Role: {learner.roleTarget}</span>
             </div>
             <h1 className="text-2xl font-bold text-[#0B1B3A]">
               {learner.name} — My Competency Profile
@@ -170,23 +249,42 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
               </span>
             </div>
 
-            <label className="flex items-start gap-3 p-3.5 rounded-xl bg-slate-50 border border-slate-200 cursor-pointer">
+            <label
+              className={`flex items-start gap-3 p-3.5 rounded-xl bg-slate-50 border border-slate-200 ${
+                isLearnerVerified
+                  ? 'cursor-pointer'
+                  : 'opacity-70 cursor-not-allowed'
+              }`}
+            >
               <input
                 type="checkbox"
-                checked={learner.consent}
+                checked={learner.consent && isLearnerVerified}
+                disabled={!isLearnerVerified}
                 onChange={handleToggleConsent}
-                className="mt-0.5 w-4 h-4 rounded border-slate-300 text-[#1E8E5A] focus:ring-[#1E8E5A]"
+                className="mt-0.5 w-4 h-4 rounded border-slate-300 text-[#1E8E5A] focus:ring-[#1E8E5A] disabled:opacity-50"
               />
               <span className="text-xs text-[#0B1B3A] leading-relaxed">
                 <strong className="font-bold block">
                   Allow NxtMove recruiters to search and view my profile
                 </strong>
                 <span className="text-slate-600">
-                  When unchecked, your profile and evidence records disappear
-                  from the NxtMove Recruiter Portal immediately.
+                  {isLearnerVerified
+                    ? 'When unchecked, your profile and evidence records disappear from the NxtMove Recruiter Portal immediately.'
+                    : `Locked because Track A Student ID status is ${learner.verificationStatus}. Verify your Student ID to unlock recruiter sharing.`}
                 </span>
               </span>
             </label>
+
+            {!isLearnerVerified && onOpenVerifyLearner && (
+              <button
+                type="button"
+                onClick={onOpenVerifyLearner}
+                className="w-full min-h-[38px] px-3 py-1.5 text-xs font-bold text-[#0B1B3A] bg-[#F2B705] hover:bg-[#d9a404] rounded-lg inline-flex items-center justify-center gap-1.5 transition-colors"
+              >
+                <AlertTriangle className="w-3.5 h-3.5" aria-hidden="true" />
+                <span>Verify Student ID (Track A) to Enable Sharing</span>
+              </button>
+            )}
           </div>
 
           <div className="text-[11px] text-slate-600 flex items-center justify-between pt-1">
@@ -196,7 +294,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
       </div>
 
       {/* Primary Highlighted Verified Competency Card (Section 4 Specification) */}
-      {verifiedCodeAttempt && (
+      {isLearnerVerified && verifiedCodeAttempt && (
         <div className="bg-white border-2 border-[#1E8E5A] rounded-xl p-6 space-y-5 shadow-xs">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div className="space-y-1">
@@ -228,7 +326,8 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
             <div>
               <div className="text-slate-500 font-semibold">Proficiency</div>
               <div className="text-sm font-bold text-[#0B1B3A] mt-0.5">
-                Verified ({learner.competencies.debugging.latestScore ?? 100}/100)
+                {learner.competencies.debugging.proficiency} (
+                {learner.competencies.debugging.latestScore ?? 0}/100)
               </div>
             </div>
             <div>
@@ -296,7 +395,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
           const comp = learner.competencies[key];
           const latestAttempt = comp.latestAttemptId
             ? repository.getAttemptById(comp.latestAttemptId)
-            : verifiedCodeAttempt;
+            : undefined;
 
           return (
             <div
@@ -389,7 +488,9 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
               }`}
             >
               <FileCode2 className="w-4 h-4" aria-hidden="true" />
-              <span>Immutable Evidence Records ({attempts.length})</span>
+              <span>
+                Published Evidence Records · {publishedAttempts.length}
+              </span>
             </button>
 
             <button
@@ -404,64 +505,79 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
               }`}
             >
               <History className="w-4 h-4" aria-hidden="true" />
-              <span>Profile Audit Log ({auditEvents.length})</span>
+              <span>Profile Audit Log · {auditEvents.length}</span>
             </button>
           </div>
 
           <span className="text-xs text-slate-500">
-            Retries create a new attempt record and never overwrite history
+            Only attempts you explicitly publish after completing the 4 stages
+            appear on your profile
           </span>
         </div>
 
         {activeTab === 'evidence' ? (
-          <div className="divide-y divide-slate-200">
-            {attempts.map((att, idx) => {
-              const found = getStageById(att.bundleId, att.stageId);
-              const stageTitle = found?.stage.title || att.stageId;
-              const compLabel =
-                COMPETENCY_META[att.competency]?.displayTitle || att.competency;
+          publishedAttempts.length === 0 ? (
+            <div className="py-8 text-center text-xs text-slate-500">
+              No published attempts on your profile yet. Complete the 4 stages
+              in the Task Sandbox and click{' '}
+              <strong>Publish Solved Problem</strong> when you are comfortable
+              with your solution.
+            </div>
+          ) : (
+            <div className="divide-y divide-slate-200">
+              {publishedAttempts.map((att, idx) => {
+                const found = getStageById(att.bundleId, att.stageId);
+                const stageTitle = found?.stage.title || att.stageId;
+                const compLabel =
+                  COMPETENCY_META[att.competency]?.displayTitle ||
+                  att.competency;
 
-              return (
-                <div
-                  key={att.id}
-                  className="py-4 first:pt-0 last:pb-0 flex flex-col sm:flex-row sm:items-center justify-between gap-4"
-                >
-                  <div className="space-y-1">
-                    <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
-                      <span className="font-mono font-semibold text-slate-700">
-                        Record #{attempts.length - idx}
-                      </span>
-                      <span aria-hidden="true">·</span>
-                      <span>{compLabel}</span>
-                      <span aria-hidden="true">·</span>
-                      <span>Rubric {att.rubricVersion}</span>
-                      <span aria-hidden="true">·</span>
-                      <span className="tabular-nums">
-                        {formatDateTime(att.submittedAt)}
-                      </span>
+                return (
+                  <div
+                    key={att.id}
+                    className="py-4 first:pt-0 last:pb-0 flex flex-col sm:flex-row sm:items-center justify-between gap-4"
+                  >
+                    <div className="space-y-1">
+                      <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
+                        <span className="font-mono font-semibold text-slate-700">
+                          Record #{publishedAttempts.length - idx}
+                        </span>
+                        <span aria-hidden="true">·</span>
+                        <span>{compLabel}</span>
+                        <span aria-hidden="true">·</span>
+                        <span>Rubric {att.rubricVersion}</span>
+                        <span aria-hidden="true">·</span>
+                        <span className="tabular-nums">
+                          {formatDateTime(att.submittedAt)}
+                        </span>
+                      </div>
+                      <div className="text-sm font-bold text-[#0B1B3A]">
+                        {stageTitle}
+                      </div>
                     </div>
-                    <div className="text-sm font-bold text-[#0B1B3A]">
-                      {stageTitle}
+
+                    <div className="flex flex-wrap items-center gap-3">
+                      <AttemptStatusIndicator
+                        status={att.status}
+                        score={att.score}
+                        flagReason={att.flagReason}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => onOpenEvidenceDrawer(att, 'diff')}
+                        className="min-h-[38px] px-3.5 py-1.5 text-xs font-semibold text-[#2E6FD8] bg-blue-50 hover:bg-blue-100 rounded-lg inline-flex items-center gap-1.5 transition-colors"
+                      >
+                        <span>Open Evidence Drawer</span>
+                      </button>
                     </div>
                   </div>
-
-                  <div className="flex flex-wrap items-center gap-3">
-                    <AttemptStatusIndicator
-                      status={att.status}
-                      score={att.score}
-                      flagReason={att.flagReason}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => onOpenEvidenceDrawer(att, 'diff')}
-                      className="min-h-[38px] px-3.5 py-1.5 text-xs font-semibold text-[#2E6FD8] bg-blue-50 hover:bg-blue-100 rounded-lg inline-flex items-center gap-1.5 transition-colors"
-                    >
-                      <span>Open Evidence Drawer</span>
-                    </button>
-                  </div>
-                </div>
-              );
-            })}
+                );
+              })}
+            </div>
+          )
+        ) : auditEvents.length === 0 ? (
+          <div className="py-8 text-center text-xs text-slate-500">
+            No audit events recorded yet for this learner session.
           </div>
         ) : (
           <ol className="relative border-s border-slate-200 ms-3 space-y-4">

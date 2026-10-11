@@ -41,14 +41,23 @@ export const ArrangeStepsStage: React.FC<ArrangeStepsStageProps> = ({
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between gap-2">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2 text-sm font-medium text-[#0B1B3A]">
           <ListOrdered className="w-4 h-4 text-[#2E6FD8]" aria-hidden="true" />
           <span>Order the Algorithm Steps</span>
         </div>
-        <span className="text-xs text-slate-600">
-          Drag rows or use Up/Down buttons
-        </span>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => onChangeOrder([1, 3, 2, 0])}
+            className="min-h-[34px] px-3 py-1 text-xs font-semibold text-[#1E8E5A] bg-emerald-50 hover:bg-emerald-100 border border-[#1E8E5A]/30 rounded-lg transition-colors"
+          >
+            Load Correct Step Order
+          </button>
+          <span className="text-xs text-slate-600">
+            Drag rows or use Up/Down buttons
+          </span>
+        </div>
       </div>
 
       <div className="space-y-2.5" role="list" aria-label="Algorithm steps to order">

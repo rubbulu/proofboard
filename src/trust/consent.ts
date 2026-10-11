@@ -3,20 +3,45 @@ import { Profile } from '../types';
 import { logAuditEvent } from './audit';
 
 /**
- * CONSENT & INTEGRITY GUARD FOR NXTMOVE RECRUITER PORTAL:
- * All recruiter queries MUST go through this single function.
- * Returns ONLY profiles where:
- * 1) consent === true ("Allow NxtMove recruiters to search and view my profile")
- * 2) disqualified !== true (Disqualified/cheated candidates NEVER appear in this talent pool)
+ * DELIVERABLE 5: HOW THE CONSENT GUARD & RECRUITER SCREEN USE VERIFICATION STATUS
+ *
+ * All recruiter queries MUST pass through getVisibleProfiles().
+ * It enforces a 3-layer deterministic gate:
+ * 1) Recruiter Verification Gate: The active recruiter's verificationStatus in `users`
+ *    MUST be 'APPROVED' (if 'PENDING', 'REJECTED', or 'UNVERIFIED', returns []).
+ * 2) Learner Verification Gate: The candidate's verificationStatus MUST be 'VERIFIED'
+ *    (Track A Student ID verified; unverified/rejected/needs_review learners are never exposed).
+ * 3) Learner-Owned Consent & Integrity Gate: The candidate's `consent === true`
+ *    ("Share with NxtMove") AND `disqualified !== true`.
  */
+export function isActiveRecruiterApproved(): boolean {
+  const recruiterUser = repository.getActiveRecruiterUser();
+  return (
+    recruiterUser.verificationStatus === 'APPROVED' &&
+    !recruiterUser.suspended
+  );
+}
+
 export function getVisibleProfiles(): Profile[] {
-  return repository
-    .getAllProfiles()
-    .filter((profile) => profile.consent === true && !profile.disqualified);
+  if (!isActiveRecruiterApproved()) {
+    return [];
+  }
+
+  return repository.getAllProfiles().filter((profile) => {
+    const isVerifiedLearner =
+      (profile.verificationStatus || 'UNVERIFIED') === 'VERIFIED';
+    return (
+      isVerifiedLearner &&
+      profile.consent === true &&
+      !profile.disqualified &&
+      Boolean(profile.hasPublishedAssessment)
+    );
+  });
 }
 
 /**
  * Updates a learner's profile consent flag and logs a consent_on or consent_off audit event.
+ * Note: Only VERIFIED learners can share their profile with recruiters.
  */
 export function setLearnerConsent(
   learnerId: string,
@@ -41,7 +66,7 @@ export function setLearnerConsent(
     learnerId: profile.learnerId,
     type: nextConsent ? 'consent_on' : 'consent_off',
     details: nextConsent
-      ? `${profile.name} enabled "Allow NxtMove recruiters to search and view my profile".`
+      ? `${profile.name} (Verified Learner) enabled "Allow NxtMove recruiters to search and view my profile".`
       : `${profile.name} disabled NxtMove recruiter sharing. Profile removed from talent search immediately.`,
   });
 

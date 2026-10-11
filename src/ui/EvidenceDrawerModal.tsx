@@ -74,6 +74,12 @@ export const EvidenceDrawerModal: React.FC<EvidenceDrawerModalProps> = ({
               </span>
               <span aria-hidden="true">·</span>
               <span>Candidate: {profile.name}</span>
+              {(profile.verificationStatus || 'VERIFIED') === 'VERIFIED' && (
+                <span className="inline-flex items-center gap-1 font-bold text-[#1E8E5A] bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-md">
+                  <ShieldCheck className="w-3.5 h-3.5" aria-hidden="true" />
+                  <span>Verified learner</span>
+                </span>
+              )}
               <span aria-hidden="true">·</span>
               <span>Rubric {attempt.rubricVersion}</span>
               <span aria-hidden="true">·</span>
